@@ -17,11 +17,11 @@ public final class IntStack implements AutoCloseable {
     private static final Unsafe unsafe = UnsafeFactory.INSTANCE;
     private static final AtomicIntegerFieldUpdater<IntStack> INDEX_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(IntStack.class, "index");
-    private volatile int index = -INT_BYTES;
     private static final AtomicIntegerFieldUpdater<IntStack> CTRL =
             AtomicIntegerFieldUpdater.newUpdater(IntStack.class, "ctrl");
     private final StampedLock lock = new StampedLock();
     private final int nullInt;
+    private volatile int index = -INT_BYTES;
     private volatile int ctrl;
     private volatile long address;
     private volatile int capacity;
