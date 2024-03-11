@@ -7,6 +7,8 @@ import dev.dominion.ecs.engine.IntEntity;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -56,62 +58,59 @@ class IntEntityTest {
 
         for (int i = 0; i < capacity; i++) {
             entities[i] = entityRepository.createEntity(c1, c2);
-            latches[i] = new CountDownLatch(threadCount);
-//            latches[i * 2 + 1] = new CountDownLatch(threadCount);
+            latches[i * 2] = new CountDownLatch(threadCount);
+            latches[i * 2 + 1] = new CountDownLatch(threadCount);
         }
-//        AtomicInteger counter = new AtomicInteger(0);
+        AtomicInteger counter = new AtomicInteger(0);
         for (int i = 0; i < capacity; i++) {
-            final var idx = i;
             executorService.execute(() -> {
-//                int idx = counter.get();
-//                int latchIdx = idx * 2;
+                int idx = counter.get();
+                int latchIdx = idx * 2;
                 entities[idx].add(c3);
-                entities[idx].add(c4);
-//                entities[idx].add(c5);
-//                try {
-//                    latches[idx].countDown();
-//                    latches[idx].await();
-////                    latches[latchIdx + 1].countDown();
-////                    latches[latchIdx + 1].await();
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
+                try {
+                    latches[latchIdx].countDown();
+                    latches[latchIdx].await();
+                    latches[latchIdx + 1].countDown();
+                    latches[latchIdx + 1].await();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             });
-//            executorService.execute(() -> {
-////                int idx = counter.get();
-////                int latchIdx = idx * 2;
-//                entities[idx].add(c4);
-//                try {
-//                    latches[idx].countDown();
-//                    latches[idx].await();
-////                    latches[latchIdx + 1].countDown();
-////                    latches[latchIdx + 1].await();
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-//            });
-//            executorService.execute(() -> {
-////                int idx = counter.get();
-////                int latchIdx = idx * 2;
-//                entities[idx].add(c5);
-//                try {
-//                    latches[idx].countDown();
-//                    latches[idx].await();
-////                    counter.incrementAndGet();
-////                    latches[latchIdx + 1].countDown();
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-//            });
+            executorService.execute(() -> {
+                int idx = counter.get();
+                int latchIdx = idx * 2;
+                entities[idx].add(c4);
+                try {
+                    latches[latchIdx].countDown();
+                    latches[latchIdx].await();
+                    latches[latchIdx + 1].countDown();
+                    latches[latchIdx + 1].await();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
+            executorService.execute(() -> {
+                int idx = counter.get();
+                int latchIdx = idx * 2;
+                entities[idx].add(c5);
+                try {
+                    latches[latchIdx].countDown();
+                    latches[latchIdx].await();
+                    counter.incrementAndGet();
+                    latches[latchIdx + 1].countDown();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
         }
         executorService.shutdown();
         Assertions.assertTrue(executorService.awaitTermination(5, TimeUnit.SECONDS));
 
-//        for (int i = 0; i < capacity; i++) {
-//            Assertions.assertArrayEquals(new Object[]{c1, c2, c3, c4, c5},
-//                    Arrays.stream(Objects.requireNonNull(((IntEntity) entities[i]).getComponentArray()))
-//                            .sorted(Comparator.comparing(comp -> comp.getClass().getName())).toArray());
-//        }
+        for (int i = 0; i < capacity; i++) {
+            Assertions.assertArrayEquals(new Object[]{c1, c2, c3, c4, c5},
+                    Arrays.stream(Objects.requireNonNull(((IntEntity) entities[i]).getComponentArray()))
+                          .sorted(Comparator.comparing(comp -> comp.getClass().getName())).toArray());
+        }
     }
 
     @Test
@@ -312,7 +311,12 @@ class IntEntityTest {
         executorService.shutdown();
         Assertions.assertTrue(executorService.awaitTermination(5, TimeUnit.SECONDS));
 
-        entityRepository.findEntitiesWith(A.class, B.class).stream().forEach(rs -> Assertions.assertEquals(rs.comp1(), rs.comp2().a, "rs.comp1() VS rs.comp2().a"));
+        entityRepository.findEntitiesWith(A.class, B.class).stream().forEach(rs -> {
+            if(rs.comp1() != rs.comp2().a) {
+                System.out.println(entityRepository);
+            }
+            Assertions.assertEquals(rs.comp1(), rs.comp2().a, "rs.comp1() VS rs.comp2().a");
+        });
 
         entityRepository.findEntitiesWith(A.class).stream().forEach(rs -> {
             if(rs.entity() != rs.comp().c.entity) {

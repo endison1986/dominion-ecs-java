@@ -5,14 +5,12 @@
 
 package dev.dominion.ecs.engine.collections;
 
-import dev.dominion.ecs.engine.EntityRepository;
 import dev.dominion.ecs.engine.system.IDUpdater;
 import dev.dominion.ecs.engine.system.Logging;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
@@ -24,32 +22,6 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
  * @param <T> the managed type that must implement the {@link Item} interface
  */
 public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoCloseable {
-    public record C1(int id) { }
-
-    public record C2(int id) { }
-    public static void main(String[] args) {
-        int capacity = (1 << 4) + 1;
-        var random = new Random();
-        int count = 0;
-        System.out.println(capacity);
-        EntityRepository entityRepository = (EntityRepository) new EntityRepository.Factory().create("stress-test");
-        for (int i = 0; i < capacity; i++) {
-            var entity = entityRepository.createEntity(new C1(i), new C2(i));
-            System.out.println(entity);
-            if (random.nextBoolean()) {
-                count++;
-                entity.removeType(C2.class);
-            }
-        }
-        System.out.println("delete: " + count);
-        System.out.println("------------------------");
-//            entityRepository.findEntitiesWith(C1.class, C2.class).stream().forEach(rs -> rs.entity().removeType(C1.class));
-//            entityRepository.findEntitiesWith(C1.class, C2.class).stream().forEach(rs -> rs.entity().removeType(C1.class));
-//            Assertions.assertFalse(entityRepository.findEntitiesWith(C1.class, C2.class).iterator().hasNext());
-        entityRepository.findEntitiesWith(C1.class, C2.class).stream().forEach(rs -> {
-            System.out.println(rs.entity());
-        });
-    }
     private static final System.Logger LOGGER = Logging.getLogger();
     private final LinkedChunk<T>[] chunks;
     private final List<Tenant<T>> tenants = new ArrayList<>();
@@ -294,7 +266,7 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
                 );
             }
             if (returnValue != IdSchema.DETACHED_BIT) {
-                pool.getChunk(returnValue).incrementIndex();
+                pool.getChunk(returnValue).decrementRmCount();
                 return returnValue;
             }
 //            returnValue = nextId;
@@ -413,9 +385,10 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
         private final int id;
         private final int dataLength;
         private final IDUpdater idUpdater;
-        private volatile int index = -1;
+        private final AtomicInteger rmCount = new AtomicInteger(0);
         private final LinkedChunk<T> previous;
         private LinkedChunk<T> next;
+        private volatile int index = -1;
         private int sizeOffset = 0;
 
         public LinkedChunk(
@@ -451,8 +424,13 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
 
         public void incrementRmCount(int id) {
             this.itemArray[idSchema.fetchObjectId(id)] = null;
-            INDEX_UPDATER.decrementAndGet(this);
+//            INDEX_UPDATER.decrementAndGet(this);
+            rmCount.incrementAndGet();
             tenant.idStack.push(id);
+        }
+
+        public void decrementRmCount() {
+            rmCount.decrementAndGet();
         }
 
         public int incrementIndex() {
@@ -580,7 +558,7 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
         }
 
         public int size() {
-            return index + sizeOffset;
+            return index + sizeOffset - rmCount.get();
         }
 
         public boolean isEmpty() {
@@ -606,48 +584,42 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
 
     public static abstract class PoolIterator<T extends Item, R> implements Iterator<R> {
         protected int index;
-        protected Item next;
         protected LinkedChunk<T> currentChunk;
         protected IdSchema idSchema;
 
         public PoolIterator(LinkedChunk<T> currentChunk, IdSchema idSchema) {
             this.currentChunk = currentChunk;
             this.idSchema = idSchema;
-            this.index = currentChunk == null ? 0 : currentChunk.size() - 1;
+            this.index = currentChunk == null ? 0 : currentChunk.size();
             advance();
         }
 
         public void advance() {
-//            while (index > -1) {
-//                if ((next = currentChunk.itemArray[index]) != null) {
-//                    return;
-//                }
-//                index--;
-//            }
-//            if (currentChunk == null) {
-//                return;
-//            }
-//            for (; ; ) {
-//                if ((currentChunk = currentChunk.next) != null) {
-//                    if (!currentChunk.isEmpty() && (index = currentChunk.size() - 1) == index) {
-//                        return true;
-//                    }
-//                } else {
-//                    return false;
-//                }
-//            }
+            if (currentChunk == null) return;
+            for (; ; ) {
+                while (--index > -1) {
+                    if (currentChunk.itemArray[index] != null) {
+                        return;
+                    }
+                }
+                if ((currentChunk = currentChunk.next) != null && !currentChunk.isEmpty()) {
+                    index = currentChunk.size();
+                } else {
+                    return;
+                }
+            }
         }
 
         @SuppressWarnings("ConstantConditions")
         @Override
         public boolean hasNext() {
-            return next != null;
+            return index > -1;
         }
 
         @SuppressWarnings({"unchecked"})
         @Override
         public R next() {
-            final var item = next;
+            final var item = currentChunk.itemArray[index];
             advance();
             return (R) item;
         }

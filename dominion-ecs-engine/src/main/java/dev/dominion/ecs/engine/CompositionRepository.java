@@ -161,11 +161,7 @@ public final class CompositionRepository implements AutoCloseable {
                             , "Modifying " + entity + " from " + entity.getComposition() + " to " + targetComposition.target())
             );
         }
-        var tenant = targetComposition.target();
-        synchronized (tenant) {
-            tenant.attachEntity(entity, targetComposition.indexMapping(), targetComposition.addedIndexMapping(), addedComponent,
-                    addedComponents);
-        }
+        targetComposition.target().attachEntity(entity, targetComposition.indexMapping(), targetComposition.addedIndexMapping(), addedComponent, addedComponents);
         if (entity.getStateId() > 0) {
             targetComposition.target().fetchStateTenants((IndexKey) entity.getStateChunk().getTenant().getSubject()).register(entity, null);
         }
