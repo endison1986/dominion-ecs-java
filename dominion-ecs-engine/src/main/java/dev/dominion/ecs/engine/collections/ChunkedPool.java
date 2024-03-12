@@ -423,7 +423,7 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
         }
 
         public void incrementRmCount(int id) {
-//            this.itemArray[idSchema.fetchObjectId(id)] = null;
+            this.itemArray[idSchema.fetchObjectId(id)] = null;
             rmCount.incrementAndGet();
             tenant.idStack.push(id);
         }
@@ -604,9 +604,12 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
             if (currentChunk == null) return null;
             Item item;
             for (; ; ) {
-                if (--index > -1 && (item = currentChunk.itemArray[index]) != null) {
-                    return item;
-                } else if (nextChuck()) {
+                while(--index > -1) {
+                    if((item = currentChunk.itemArray[index]) != null) {
+                        return item;
+                    }
+                }
+                if (nextChuck()) {
                     index = currentChunk.itemSize();
                 } else {
                     return null;
