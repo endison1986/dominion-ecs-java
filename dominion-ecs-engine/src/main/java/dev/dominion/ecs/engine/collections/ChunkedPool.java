@@ -423,8 +423,7 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
         }
 
         public void incrementRmCount(int id) {
-            this.itemArray[idSchema.fetchObjectId(id)] = null;
-//            INDEX_UPDATER.decrementAndGet(this);
+//            this.itemArray[idSchema.fetchObjectId(id)] = null;
             rmCount.incrementAndGet();
             tenant.idStack.push(id);
         }
@@ -561,8 +560,12 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
             return index + sizeOffset - rmCount.get();
         }
 
-        public boolean isEmpty() {
-            return size() == 0;
+        public int itemSize() {
+            return index + sizeOffset;
+        }
+
+        public boolean isNotEmpty() {
+            return size() != 0;
         }
 
         @Override
@@ -584,30 +587,35 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
 
     public static abstract class PoolIterator<T extends Item, R> implements Iterator<R> {
         protected int index;
+        Item item;
+        protected int id;
         protected LinkedChunk<T> currentChunk;
         protected IdSchema idSchema;
 
         public PoolIterator(LinkedChunk<T> currentChunk, IdSchema idSchema) {
             this.currentChunk = currentChunk;
             this.idSchema = idSchema;
-            this.index = currentChunk == null ? 0 : currentChunk.size();
-            advance();
+            this.index = currentChunk == null ? 0 : currentChunk.itemSize();
+            item = advance();
+            id = item == null ? -1 : item.getId();
         }
 
-        public void advance() {
-            if (currentChunk == null) return;
+        public Item advance() {
+            if (currentChunk == null) return null;
+            Item item;
             for (; ; ) {
-                while (--index > -1) {
-                    if (currentChunk.itemArray[index] != null) {
-                        return;
-                    }
-                }
-                if ((currentChunk = currentChunk.next) != null && !currentChunk.isEmpty()) {
-                    index = currentChunk.size();
+                if (--index > -1 && (item = currentChunk.itemArray[index]) != null) {
+                    return item;
+                } else if (nextChuck()) {
+                    index = currentChunk.itemSize();
                 } else {
-                    return;
+                    return null;
                 }
             }
+        }
+
+        protected boolean nextChuck() {
+            return (currentChunk = currentChunk.next) != null && currentChunk.isNotEmpty();
         }
 
         @SuppressWarnings("ConstantConditions")
@@ -619,9 +627,10 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
         @SuppressWarnings({"unchecked"})
         @Override
         public R next() {
-            final var item = currentChunk.itemArray[index];
-            advance();
-            return (R) item;
+            final var cache = item;
+            item = advance();
+            id = item == null ? -1 : item.getId();
+            return (R) cache;
         }
     }
 
@@ -671,24 +680,8 @@ public final class ChunkedPool<T extends ChunkedPool.Item> implements AutoClosea
             currentChunk = chunks[chunkIndex];
         }
 
-        @SuppressWarnings("ConstantConditions")
-        @Override
-        public boolean hasNext() {
-            while (index > -1) {
-                if (currentChunk.itemArray[index] != null) {
-                    return true;
-                }
-                index--;
-            }
-            for (; ; ) {
-                if (chunkIndex > 0 && (currentChunk = chunks[--chunkIndex]) != null) {
-                    if (!currentChunk.isEmpty() && (index = currentChunk.size() - 1) == index) {
-                        return true;
-                    }
-                } else {
-                    return false;
-                }
-            }
+        @Override protected boolean nextChuck() {
+            return chunkIndex > 0 && (currentChunk = chunks[--chunkIndex]) != null && currentChunk.isNotEmpty();
         }
     }
 
